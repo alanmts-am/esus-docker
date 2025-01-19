@@ -10,6 +10,8 @@ sudo docker compose -f docker-compose.yml up -d
 
 Use a flag --build para recriar a imagem, caso necessário.
 
+!! A imagem do sistema esus deve ser baixada e colocada na raiz do projeto, por hora, com o nome "pec.jar"
+
 Por padrão, dadas as configurações do compose, a aplicação será iniciada http://localhost:8081
 
 O banco de dados fica acessível pela porta 5433.
