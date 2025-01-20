@@ -10,6 +10,11 @@ ARG POSTGRES_DB
 
 ENV PGPASSWORD=${POSTGRES_PASSWORD}
 
+RUN mkdir -p /opt/e-SUS/webserver/chaves
+RUN mkdir /backups
+RUN mkdir -p /var/www/html
+WORKDIR /var/www/html
+
 RUN echo "deb http://deb.debian.org/debian bullseye main contrib non-free" > /etc/apt/sources.list
 
 RUN apt-get update && apt-get install -y \
@@ -31,13 +36,9 @@ RUN apt-get update && \
 
 RUN apt-get update && apt-get install -y postgresql-client
 
+RUN wget https://arquivos.esusab.ufsc.br/PEC/7d3e584b4558d4bd/5.3.22/eSUS-AB-PEC-5.3.22-Linux64.jar -O ./pec.jar
 
-RUN mkdir -p /opt/e-SUS/webserver/chaves
-RUN mkdir /backups
-RUN mkdir -p /var/www/html
-WORKDIR /var/www/html
-
-COPY ./pec.jar pec.jar
+# COPY ./pec.jar pec.jar
 
 COPY ./init.sh /init.sh
 
