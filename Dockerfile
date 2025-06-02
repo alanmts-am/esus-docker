@@ -36,7 +36,7 @@ RUN apt-get update && \
 
 RUN apt-get update && apt-get install -y postgresql-client
 
-RUN wget https://arquivos.esusab.ufsc.br/PEC/7d3e584b4558d4bd/5.3.22/eSUS-AB-PEC-5.3.22-Linux64.jar -O ./pec.jar
+RUN wget https://arquivos.esusab.ufsc.br/PEC/734cbde90ab918bd/5.3.31/eSUS-AB-PEC-5.3.31-Linux64.jar -O ./pec.jar
 
 # COPY ./pec.jar pec.jar
 
