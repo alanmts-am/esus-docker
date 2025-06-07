@@ -1,6 +1,6 @@
 services:
   pec:
-    container_name: pec
+    container_name: esus_pec
     platform: linux/amd64
     volumes:
       - /esus-data/opt:/opt/e-SUS
@@ -10,18 +10,19 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        POSTGRES_HOST: ${POSTGRES_HOST}
-        POSTGRES_PORT: ${POSTGRES_PORT}
-        POSTGRES_USER: ${POSTGRES_USER}
-        POSTGRES_DB: ${POSTGRES_DB}
-        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        POSTGRES_HOST: db
+        POSTGRES_PORT: 5432
+        POSTGRES_USER: postgres
+        POSTGRES_DB: esus
+        POSTGRES_PASSWORD: esus
+        ESUS_DOWNLOAD_URL: ${ESUS_DOWNLOAD_URL}
     environment:
       - TZ=America/Recife
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=esus
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=esus
     privileged: true
     stdin_open: true
     tty: true
@@ -32,12 +33,12 @@ services:
     depends_on:
       - db
   db:
-    container_name: db
+    container_name: esus_db
     image: postgres:9.6-alpine
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=esus
+      - POSTGRES_DB=esus
     ports: 
       - "5433:5432" 
     volumes:

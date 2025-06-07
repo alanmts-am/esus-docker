@@ -15,6 +15,7 @@ services:
         POSTGRES_USER: ${POSTGRES_USER}
         POSTGRES_DB: ${POSTGRES_DB}
         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        ESUS_DOWNLOAD_URL: ${ESUS_DOWNLOAD_URL}
     environment:
       - TZ=America/Recife
       - POSTGRES_USER=${POSTGRES_USER}

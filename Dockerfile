@@ -7,6 +7,7 @@ ARG POSTGRES_PORT
 ARG POSTGRES_USER
 ARG POSTGRES_PASSWORD
 ARG POSTGRES_DB
+ARG ESUS_DOWNLOAD_URL
 
 ENV PGPASSWORD=${POSTGRES_PASSWORD}
 
@@ -36,9 +37,7 @@ RUN apt-get update && \
 
 RUN apt-get update && apt-get install -y postgresql-client
 
-RUN wget https://arquivos.esusab.ufsc.br/PEC/734cbde90ab918bd/5.3.31/eSUS-AB-PEC-5.3.31-Linux64.jar -O ./pec.jar
-
-# COPY ./pec.jar pec.jar
+RUN wget ${ESUS_DOWNLOAD_URL} -O ./pec.jar
 
 COPY ./init.sh /init.sh
 
