@@ -7,8 +7,14 @@ ARG POSTGRES_PORT
 ARG POSTGRES_USER
 ARG POSTGRES_PASSWORD
 ARG POSTGRES_DB
+ARG ESUS_DOWNLOAD_URL
 
 ENV PGPASSWORD=${POSTGRES_PASSWORD}
+
+RUN mkdir -p /opt/e-SUS/webserver/chaves
+RUN mkdir /backups
+RUN mkdir -p /var/www/html
+WORKDIR /var/www/html
 
 RUN echo "deb http://deb.debian.org/debian bullseye main contrib non-free" > /etc/apt/sources.list
 
@@ -31,13 +37,7 @@ RUN apt-get update && \
 
 RUN apt-get update && apt-get install -y postgresql-client
 
-
-RUN mkdir -p /opt/e-SUS/webserver/chaves
-RUN mkdir /backups
-RUN mkdir -p /var/www/html
-WORKDIR /var/www/html
-
-COPY ./pec.jar pec.jar
+RUN wget ${ESUS_DOWNLOAD_URL} -O ./pec.jar
 
 COPY ./init.sh /init.sh
 
