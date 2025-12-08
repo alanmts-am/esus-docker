@@ -1,4 +1,4 @@
-FROM openjdk:17-jdk-slim
+FROM eclipse-temurin:17-jdk-jammy
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -15,8 +15,6 @@ RUN mkdir -p /opt/e-SUS/webserver/chaves
 RUN mkdir /backups
 RUN mkdir -p /var/www/html
 WORKDIR /var/www/html
-
-RUN echo "deb http://deb.debian.org/debian bullseye main contrib non-free" > /etc/apt/sources.list
 
 RUN apt-get update && apt-get install -y \
     locales \
