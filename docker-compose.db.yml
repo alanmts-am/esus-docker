@@ -40,6 +40,6 @@ services:
       - POSTGRES_PASSWORD=esus
       - POSTGRES_DB=esus
     ports: 
-      - "5433:5432" 
+      - "5543:5432" 
     volumes:
       - /home/docker/esus-data-${ESUS_VERSION}/db:/var/lib/postgresql/data
