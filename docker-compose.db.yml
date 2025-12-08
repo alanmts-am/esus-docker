@@ -1,6 +1,6 @@
 services:
   pec:
-    container_name: esus_pec
+    container_name: esus_${ESUS_VERSION}
     platform: linux/amd64
     volumes:
       - /esus-data/opt:/opt/e-SUS
@@ -33,7 +33,7 @@ services:
     depends_on:
       - db
   db:
-    container_name: esus_db
+    container_name: esus_db_${ESUS_VERSION}
     image: postgres:9.6-alpine
     environment:
       - POSTGRES_USER=postgres
