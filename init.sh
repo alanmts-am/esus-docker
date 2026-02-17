@@ -7,6 +7,6 @@ done
 
 psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -d $POSTGRES_DB -c "update tb_config_sistema set ds_texto = null, ds_inteiro = 1 where co_config_sistema = 'TREINAMENTO';"
 
-unset PGPASSWORD
+unset POSTGRES_PASSWORD
  
 exec "/opt/e-SUS/webserver/standalone.sh"
