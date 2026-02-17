@@ -10,11 +10,6 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        POSTGRES_HOST: db
-        POSTGRES_PORT: 5432
-        POSTGRES_USER: postgres
-        POSTGRES_DB: esus
-        POSTGRES_PASSWORD: esus
         ESUS_DOWNLOAD_URL: ${ESUS_DOWNLOAD_URL}
     environment:
       - TZ=America/Recife
