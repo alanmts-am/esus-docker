@@ -1,10 +1,10 @@
 services:
   pec:
-    container_name: esus_${ESUS_VERSION}
-    platform: linux/amd64
+    container_name: esus_${ESUS_VERSION_PATH}
+    image: esus-pec:${ESUS_VERSION_TAG}
     volumes:
-      - /home/docker/esus-data-${ESUS_VERSION}/opt:/opt/e-SUS
-      - /home/docker/esus-data-${ESUS_VERSION}/backups:/backups
+      - /home/esus-data/${ESUS_VERSION_PATH}/opt:/opt/e-SUS
+      - /home/esus-data/${ESUS_VERSION_PATH}/backups:/backups
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
     build:
       context: .
@@ -33,7 +33,7 @@ services:
     depends_on:
       - db
   db:
-    container_name: esus_db_${ESUS_VERSION}
+    container_name: esus_db_${ESUS_VERSION_PATH}
     image: postgres:9.6-alpine
     environment:
       - POSTGRES_USER=postgres
@@ -42,4 +42,4 @@ services:
     ports: 
       - "5543:5432" 
     volumes:
-      - /home/docker/esus-data-${ESUS_VERSION}/db:/var/lib/postgresql/data
+      - /home/esus-data/${ESUS_VERSION_PATH}/db:/var/lib/postgresql/data
