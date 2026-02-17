@@ -3,8 +3,8 @@ services:
     container_name: esus_${ESUS_VERSION_PATH}
     image: esus-pec:${ESUS_VERSION_TAG}
     volumes:
-      - /home/docker/esus-data-${ESUS_VERSION_PATH}/opt:/opt/e-SUS
-      - /home/docker/esus-data-${ESUS_VERSION_PATH}/backups:/backups
+      - ${ESUS_BASE_PATH}/${ESUS_VERSION_PATH}/opt:/opt/e-SUS
+      - ${ESUS_BASE_PATH}/${ESUS_VERSION_PATH}/backups:/backups
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
     build:
       context: .
