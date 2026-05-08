@@ -1,7 +1,8 @@
 services:
   pec:
     container_name: esus_${ESUS_CONTAINER}
-    image: esus-${ESUS_IMAGE}
+    image: esus:${ESUS_IMAGE}
+    pull_policy: build
     platform: linux/amd64
     volumes:
       - ${ESUS_VOLUME_PATH}/${ESUS_IMAGE}/opt:/opt/e-SUS
