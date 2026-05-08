@@ -2,6 +2,7 @@ FROM eclipse-temurin:17-jdk-jammy
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG POSTGRES_PASSWORD
 ARG ESUS_DOWNLOAD_URL
 
 RUN mkdir -p /opt/e-SUS/webserver/chaves

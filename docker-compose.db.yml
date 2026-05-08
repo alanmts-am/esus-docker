@@ -1,15 +1,18 @@
 services:
   pec:
-    container_name: esus_${ESUS_VERSION_PATH}
-    image: esus-pec:${ESUS_VERSION_TAG}
+    container_name: esus_${ESUS_CONTAINER}
+    image: esus:${ESUS_IMAGE}
+    pull_policy: build
+    platform: linux/amd64
     volumes:
-      - ${ESUS_BASE_PATH}/${ESUS_VERSION_PATH}/opt:/opt/e-SUS
-      - ${ESUS_BASE_PATH}/${ESUS_VERSION_PATH}/backups:/backups
+      - ${ESUS_VOLUME_PATH}/${ESUS_IMAGE}/opt:/opt/e-SUS
+      - ${ESUS_VOLUME_PATH}/${ESUS_IMAGE}/backups:/backups
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
     build:
       context: .
       dockerfile: Dockerfile
       args:
+        POSTGRES_PASSWORD: esus
         ESUS_DOWNLOAD_URL: ${ESUS_DOWNLOAD_URL}
     environment:
       - TZ=America/Recife
@@ -28,7 +31,7 @@ services:
     depends_on:
       - db
   db:
-    container_name: esus_db_${ESUS_VERSION_PATH}
+    container_name: esus_db_${ESUS_CONTAINER}
     image: postgres:9.6-alpine
     environment:
       - POSTGRES_USER=postgres
@@ -37,4 +40,4 @@ services:
     ports: 
       - "5543:5432" 
     volumes:
-      - ${ESUS_BASE_PATH}/${ESUS_VERSION_PATH}/db:/var/lib/postgresql/data
+      - ${ESUS_VOLUME_PATH}/${ESUS_IMAGE}/db:/var/lib/postgresql/data
