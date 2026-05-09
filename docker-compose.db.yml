@@ -32,11 +32,13 @@ services:
       - db
   db:
     container_name: esus_db_${ESUS_CONTAINER}
-    image: postgres:9.6-alpine
+    image: postgres:14-alpine
+    command: postgres -c password_encryption=md5
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=esus
       - POSTGRES_DB=esus
+      - POSTGRES_INITDB_ARGS=--auth-host=md5 --auth-local=md5
     ports: 
       - "5543:5432" 
     volumes:
