@@ -5,6 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG POSTGRES_PASSWORD
 ARG ESUS_DOWNLOAD_URL
 
+ENV PGPASSWORD=${POSTGRES_PASSWORD}
+
 RUN mkdir -p /opt/e-SUS/webserver/chaves
 RUN mkdir /backups
 RUN mkdir -p /var/www/html
