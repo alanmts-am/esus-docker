@@ -32,14 +32,15 @@ services:
       - db
   db:
     container_name: esus_db_${ESUS_CONTAINER}
-    image: postgres:14-alpine
+    image: postgres:18.3-alpine
     command: postgres -c password_encryption=md5
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=esus
       - POSTGRES_DB=esus
       - POSTGRES_INITDB_ARGS=--auth-host=md5 --auth-local=md5
+      - PGDATA=/var/lib/postgresql/data
     ports: 
       - "5543:5432" 
     volumes:
-      - ${ESUS_VOLUME_PATH}/${ESUS_IMAGE}/db:/var/lib/postgresql/data
+      - ${ESUS_VOLUME_PATH}/${ESUS_IMAGE}/db:/var/lib/postgresql
