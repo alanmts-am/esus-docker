@@ -21,6 +21,7 @@ services:
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - POSTGRES_DB=esus
+      - SPRING_JPA_SHOW_SQL=true
     privileged: true
     stdin_open: true
     tty: true
