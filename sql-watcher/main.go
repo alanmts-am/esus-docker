@@ -48,6 +48,11 @@ var (
 
 	// Filter settings
 	watchID = os.Getenv("WATCH_ID")
+
+	// Multi-line state
+	currentPID   string
+	currentType  string // "EXECUTE" or "PARAMS"
+	pendingParams string
 )
 
 func main() {
@@ -121,29 +126,49 @@ func streamDockerLogs(containerName string) {
 }
 
 func processLine(logText string) {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
+	// Check if this is a continuation line (starts with tab or multiple spaces)
+	if (strings.HasPrefix(logText, "\t") || strings.HasPrefix(logText, " ")) && currentPID != "" {
+		if currentType == "EXECUTE" {
+			pending := queryState[currentPID]
+			pending.SQL += " " + strings.TrimSpace(logText)
+			queryState[currentPID] = pending
+		} else if currentType == "PARAMS" {
+			pendingParams += " " + strings.TrimSpace(logText)
+		}
+		return
+	}
+
+	// If we were accumulating parameters and a new prefixed line starts, broadcast the previous one
+	if currentType == "PARAMS" && currentPID != "" {
+		broadcastPendingParams()
+	}
+
 	if matches := reExecute.FindStringSubmatch(logText); matches != nil {
 		timestamp := strings.TrimSpace(matches[1])
 		pid := matches[2]
 		appName := matches[3]
 		sql := matches[4]
 
-		// For UI display, combine PID and AppName if available
 		displayID := pid
 		if appName != "" {
 			displayID = fmt.Sprintf("%s [%s]", appName, pid)
 		}
 
 		if watchID != "" && pid != watchID && appName != watchID {
+			currentPID = "" // Stop tracking this one
 			return
 		}
 
-		stateMu.Lock()
+		currentPID = pid
+		currentType = "EXECUTE"
 		queryState[pid] = pendingQuery{
 			SQL:       sql,
 			Timestamp: timestamp,
 			DisplayID: displayID,
 		}
-		stateMu.Unlock()
 		return
 	}
 
@@ -151,21 +176,41 @@ func processLine(logText string) {
 		pid := matches[2]
 		paramsRaw := matches[4]
 		
-		stateMu.Lock()
-		pending, ok := queryState[pid]
-		delete(queryState, pid)
-		stateMu.Unlock()
-
-		if ok {
-			finalQuery := reconstructQuery(pending.SQL, paramsRaw)
-			broadcast <- QueryMessage{
-				PID:       pending.DisplayID,
-				Query:     finalQuery,
-				Timestamp: pending.Timestamp,
-				Table:     extractTable(finalQuery),
-			}
-		}
+		currentPID = pid
+		currentType = "PARAMS"
+		pendingParams = paramsRaw
+		return
 	}
+
+	// If it's some other log line, clear the multi-line state
+	currentPID = ""
+	currentType = ""
+}
+
+func broadcastPendingParams() {
+	// Assumes stateMu is already locked
+	pending, ok := queryState[currentPID]
+	if ok {
+		delete(queryState, currentPID)
+		finalQuery := reconstructQuery(pending.SQL, pendingParams)
+		
+		// Reset state before broadcasting to avoid race conditions if broadcast is slow (though it's a chan)
+		msg := QueryMessage{
+			PID:       pending.DisplayID,
+			Query:     finalQuery,
+			Timestamp: pending.Timestamp,
+			Table:     extractTable(finalQuery),
+		}
+		
+		// Do not hold lock while sending to channel to avoid deadlocks if channel is full
+		// But here we need to keep it simple for now or use a goroutine
+		go func(m QueryMessage) {
+			broadcast <- m
+		}(msg)
+	}
+	pendingParams = ""
+	currentPID = ""
+	currentType = ""
 }
 
 func extractTable(query string) string {
