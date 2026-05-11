@@ -12,15 +12,16 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        POSTGRES_PASSWORD: esus
         ESUS_DOWNLOAD_URL: ${ESUS_DOWNLOAD_URL}
     environment:
       - TZ=America/Recife
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_HOST=${POSTGRES_HOST}
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=esus
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=esus
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/esus?ApplicationName=${ESUS_PID}
     privileged: true
     stdin_open: true
     tty: true
@@ -28,3 +29,38 @@ services:
       - "8081:8080"
       - "8082:80"
       - "8083:443"
+    depends_on:
+      - db
+  watcher:
+      build: sql-watcher/.
+      image: sql-watcher:${ESUS_IMAGE}
+      pull_policy: build
+      container_name: sql_watcher_${ESUS_CONTAINER}
+      environment:
+        - TARGET_CONTAINER=esus_db_${ESUS_CONTAINER}
+        - WATCH_ID=${ESUS_PID}
+      ports:
+        - "8084:8081"
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock:ro
+      depends_on:
+      - db
+  db:
+    container_name: esus_db_${ESUS_CONTAINER}
+    image: postgres:18.3-alpine
+    command: [
+      "postgres",
+      "-c", "password_encryption=md5",
+      "-c", "log_statement=all",
+      "-c", "log_line_prefix=%m [%p] [%a] "
+    ]
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=esus
+      - POSTGRES_DB=esus
+      - POSTGRES_INITDB_ARGS=--auth-host=md5 --auth-local=md5
+      - PGDATA=/var/lib/postgresql/data
+    ports: 
+      - "5543:5432" 
+    volumes:
+      - ${ESUS_VOLUME_PATH}/${ESUS_IMAGE}/db:/var/lib/postgresql
