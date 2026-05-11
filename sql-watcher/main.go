@@ -26,13 +26,14 @@ type QueryMessage struct {
 type pendingQuery struct {
 	SQL       string
 	Timestamp string
+	DisplayID string
 }
 
 var (
 	// Regex patterns: Case-insensitive and flexible with spaces
-	// Updated to optionally capture timestamp before [PID]
-	reExecute = regexp.MustCompile(`(?i)(?:(.*?) )?\[(.*?)\] LOG:\s+execute .*: (.*)`)
-	reParams  = regexp.MustCompile(`(?i)(?:(.*?) )?\[(.*?)\] DETAIL:\s+parameters: (.*)`)
+	// Handles formats like TIMESTAMP [PID] [APPNAME]
+	reExecute = regexp.MustCompile(`(?i)^(?:(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: \w+)?)\s+)?\[([^\]]+)\](?: \[([^\]]+)\])? LOG:\s+execute .*: (.*)`)
+	reParams  = regexp.MustCompile(`(?i)^(?:(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: \w+)?)\s+)?\[([^\]]+)\](?: \[([^\]]+)\])? DETAIL:\s+parameters:\s+(.*)`)
 	
 	queryState = make(map[string]pendingQuery)
 	stateMu    sync.Mutex
@@ -123,9 +124,16 @@ func processLine(logText string) {
 	if matches := reExecute.FindStringSubmatch(logText); matches != nil {
 		timestamp := strings.TrimSpace(matches[1])
 		pid := matches[2]
-		sql := matches[3]
+		appName := matches[3]
+		sql := matches[4]
 
-		if watchID != "" && pid != watchID {
+		// For UI display, combine PID and AppName if available
+		displayID := pid
+		if appName != "" {
+			displayID = fmt.Sprintf("%s [%s]", appName, pid)
+		}
+
+		if watchID != "" && pid != watchID && appName != watchID {
 			return
 		}
 
@@ -133,6 +141,7 @@ func processLine(logText string) {
 		queryState[pid] = pendingQuery{
 			SQL:       sql,
 			Timestamp: timestamp,
+			DisplayID: displayID,
 		}
 		stateMu.Unlock()
 		return
@@ -140,7 +149,7 @@ func processLine(logText string) {
 
 	if matches := reParams.FindStringSubmatch(logText); matches != nil {
 		pid := matches[2]
-		paramsRaw := matches[3]
+		paramsRaw := matches[4]
 		
 		stateMu.Lock()
 		pending, ok := queryState[pid]
@@ -150,7 +159,7 @@ func processLine(logText string) {
 		if ok {
 			finalQuery := reconstructQuery(pending.SQL, paramsRaw)
 			broadcast <- QueryMessage{
-				PID:       pid,
+				PID:       pending.DisplayID,
 				Query:     finalQuery,
 				Timestamp: pending.Timestamp,
 				Table:     extractTable(finalQuery),
@@ -198,7 +207,8 @@ func extractTable(query string) string {
 func reconstructQuery(skeleton string, paramsRaw string) string {
 	// 1. Build a map of placeholder -> value
 	values := make(map[string]string)
-	reParamStart := regexp.MustCompile(`\$\d+ = `)
+	// Match $1 = , $10 = , etc. with flexible spacing
+	reParamStart := regexp.MustCompile(`\$\d+\s*=\s*`)
 	indices := reParamStart.FindAllStringIndex(paramsRaw, -1)
 	
 	if len(indices) == 0 {
@@ -214,11 +224,14 @@ func reconstructQuery(skeleton string, paramsRaw string) string {
 		}
 		
 		// Extract placeholder (e.g., "$1")
-		placeholder := strings.TrimSpace(strings.Split(paramsRaw[start:valStart], " =")[0])
+		placeholderMatch := paramsRaw[start:valStart]
+		placeholder := strings.TrimSpace(strings.Split(placeholderMatch, "=")[0])
 		
 		// Extract and clean value
 		val := paramsRaw[valStart:end]
+		// Remove trailing comma and space if not the last parameter
 		val = strings.TrimSuffix(val, ", ")
+		val = strings.TrimSuffix(val, ",") // Handle case without space
 		val = strings.TrimSpace(val)
 		
 		values[placeholder] = val
