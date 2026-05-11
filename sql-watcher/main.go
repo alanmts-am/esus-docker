@@ -16,12 +16,25 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type QueryMessage struct {
+	PID       string `json:"pid"`
+	Query     string `json:"query"`
+	Timestamp string `json:"timestamp"`
+	Table     string `json:"table"`
+}
+
+type pendingQuery struct {
+	SQL       string
+	Timestamp string
+}
+
 var (
 	// Regex patterns: Case-insensitive and flexible with spaces
-	reExecute = regexp.MustCompile(`(?i)\[(.*?)\] LOG:\s+execute .*: (.*)`)
-	reParams  = regexp.MustCompile(`(?i)\[(.*?)\] DETAIL:\s+parameters: (.*)`)
+	// Updated to optionally capture timestamp before [PID]
+	reExecute = regexp.MustCompile(`(?i)(?:(.*?) )?\[(.*?)\] LOG:\s+execute .*: (.*)`)
+	reParams  = regexp.MustCompile(`(?i)(?:(.*?) )?\[(.*?)\] DETAIL:\s+parameters: (.*)`)
 	
-	queryState = make(map[string]string)
+	queryState = make(map[string]pendingQuery)
 	stateMu    sync.Mutex
 
 	upgrader = websocket.Upgrader{
@@ -35,12 +48,6 @@ var (
 	// Filter settings
 	watchID = os.Getenv("WATCH_ID")
 )
-
-type QueryMessage struct {
-	PID       string `json:"pid"`
-	Query     string `json:"query"`
-	Timestamp string `json:"timestamp"`
-}
 
 func main() {
 	containerName := os.Getenv("TARGET_CONTAINER")
@@ -62,7 +69,6 @@ func main() {
 }
 
 func streamDockerLogs(containerName string) {
-	// Create a custom HTTP client that talks to the Docker Unix Socket
 	client := http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
@@ -86,8 +92,6 @@ func streamDockerLogs(containerName string) {
 		os.Exit(1)
 	}
 
-	// Docker log stream has an 8-byte header per frame: [1-byte stream type, 3-bytes pad, 4-bytes payload size]
-	// If the container has a TTY, the header is not present. But most DB containers don't use TTY.
 	reader := bufio.NewReader(resp.Body)
 	for {
 		header := make([]byte, 8)
@@ -98,7 +102,6 @@ func streamDockerLogs(containerName string) {
 			break
 		}
 
-		// Payload size is in the last 4 bytes (BigEndian)
 		size := uint32(header[4])<<24 | uint32(header[5])<<16 | uint32(header[6])<<8 | uint32(header[7])
 		payload := make([]byte, size)
 		_, err = io.ReadFull(reader, payload)
@@ -118,71 +121,119 @@ func streamDockerLogs(containerName string) {
 
 func processLine(logText string) {
 	if matches := reExecute.FindStringSubmatch(logText); matches != nil {
-		pid := matches[1]
+		timestamp := strings.TrimSpace(matches[1])
+		pid := matches[2]
+		sql := matches[3]
 
-		// Filter by ID if configured
 		if watchID != "" && pid != watchID {
 			return
 		}
 
-		sql := matches[2]
 		stateMu.Lock()
-		queryState[pid] = sql
+		queryState[pid] = pendingQuery{
+			SQL:       sql,
+			Timestamp: timestamp,
+		}
 		stateMu.Unlock()
 		return
 	}
 
 	if matches := reParams.FindStringSubmatch(logText); matches != nil {
-		pid := matches[1]
-		paramsRaw := matches[2]
+		pid := matches[2]
+		paramsRaw := matches[3]
+		
 		stateMu.Lock()
-		sqlSkeleton, ok := queryState[pid]
+		pending, ok := queryState[pid]
 		delete(queryState, pid)
 		stateMu.Unlock()
 
 		if ok {
-			finalQuery := reconstructQuery(sqlSkeleton, paramsRaw)
+			finalQuery := reconstructQuery(pending.SQL, paramsRaw)
 			broadcast <- QueryMessage{
-				PID:   pid,
-				Query: finalQuery,
+				PID:       pid,
+				Query:     finalQuery,
+				Timestamp: pending.Timestamp,
+				Table:     extractTable(finalQuery),
 			}
 		}
 	}
 }
 
+func extractTable(query string) string {
+	upperQuery := strings.ToUpper(query)
+	patterns := []string{
+		`FROM\s+([a-zA-Z0-9_."]+)`,
+		`INSERT INTO\s+([a-zA-Z0-9_."]+)`,
+		`UPDATE\s+([a-zA-Z0-9_."]+)`,
+		`DELETE FROM\s+([a-zA-Z0-9_."]+)`,
+		`INTO\s+([a-zA-Z0-9_."]+)`,
+	}
+	for _, p := range patterns {
+		re := regexp.MustCompile(`(?i)` + p)
+		matches := re.FindStringSubmatch(query)
+		if len(matches) > 1 {
+			return matches[1]
+		}
+	}
+	
+	parts := strings.Fields(upperQuery)
+	if len(parts) > 1 {
+		if parts[0] == "SELECT" {
+			for i, part := range parts {
+				if part == "FROM" && i+1 < len(parts) {
+					return parts[i+1]
+				}
+			}
+		} else if parts[0] == "INSERT" || parts[0] == "UPDATE" || parts[0] == "DELETE" {
+			for i, part := range parts {
+				if (part == "INTO" || part == "UPDATE" || part == "FROM") && i+1 < len(parts) {
+					return parts[i+1]
+				}
+			}
+		}
+	}
+	return "N/A"
+}
+
 func reconstructQuery(skeleton string, paramsRaw string) string {
-	// 1. Encontrar todas as posições onde começa um "$n = "
+	// 1. Build a map of placeholder -> value
+	values := make(map[string]string)
 	reParamStart := regexp.MustCompile(`\$\d+ = `)
 	indices := reParamStart.FindAllStringIndex(paramsRaw, -1)
+	
 	if len(indices) == 0 {
 		return skeleton
 	}
 
-	result := skeleton
 	for i := 0; i < len(indices); i++ {
-		// Onde começa o "$n = " atual
 		start := indices[i][0]
 		valStart := indices[i][1]
-
-		// Onde termina o valor (é o início do próximo "$n = " ou o fim da string)
 		end := len(paramsRaw)
 		if i+1 < len(indices) {
 			end = indices[i+1][0]
 		}
-
-		// Extrair placeholder ($n) e o valor
+		
+		// Extract placeholder (e.g., "$1")
 		placeholder := strings.TrimSpace(strings.Split(paramsRaw[start:valStart], " =")[0])
+		
+		// Extract and clean value
 		val := paramsRaw[valStart:end]
-
-		// Limpar o valor (remover vírgula e espaço no final se não for o último)
 		val = strings.TrimSuffix(val, ", ")
 		val = strings.TrimSpace(val)
-
-		// Substituir no esqueleto
-		result = strings.ReplaceAll(result, placeholder, val)
+		
+		values[placeholder] = val
 	}
 
-	return result
+	// 2. Replace placeholders in the skeleton using regex to avoid partial matches
+	// Using ReplaceAllStringFunc ensures that $10 is treated as a single token 
+	// and not as $1 followed by 0.
+	rePlaceholder := regexp.MustCompile(`\$\d+`)
+	return rePlaceholder.ReplaceAllStringFunc(skeleton, func(match string) string {
+		if val, ok := values[match]; ok {
+			return val
+		}
+		return match
+	})
 }
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {

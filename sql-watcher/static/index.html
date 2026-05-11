@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SQL Stream Reconstructor</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <style>
@@ -70,7 +71,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
                     </span>
-                    <input type="text" x-model="filter" placeholder="Filter by SQL content..." class="w-full bg-slate-900 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-sm">
+                    <input type="text" x-model="filter" placeholder="Filter by SQL content or Table..." class="w-full bg-slate-900 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-sm">
                 </div>
                 <div class="flex space-x-2 overflow-x-auto pb-1">
                     <template x-for="tag in tags" :key="tag">
@@ -80,20 +81,58 @@
             </div>
 
             <!-- Query List -->
-            <div class="space-y-4">
-                <template x-for="(q, index) in filteredQueries" :key="index">
+            <div class="space-y-3">
+                <template x-for="(item, index) in filteredQueries" :key="index">
                     <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl hover:border-slate-600 transition-all group">
-                        <div class="bg-slate-800/50 px-4 py-2 flex justify-between items-center border-b border-slate-800">
-                            <div class="flex items-center space-x-4">
-                                <span class="text-[10px] uppercase tracking-wider font-semibold text-slate-500">PID: <span class="text-indigo-400" x-text="q.pid"></span></span>
-                                <span class="text-[10px] text-slate-500" x-text="new Date().toLocaleTimeString()"></span>
+                        <!-- Collapsed State (Header) -->
+                        <div @click="item.expanded = !item.expanded" class="cursor-pointer bg-slate-800/30 px-4 py-3 flex justify-between items-center border-b border-slate-800/50 hover:bg-slate-800/60 transition-colors">
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 flex-grow items-center">
+                                <div class="flex flex-col">
+                                    <span class="text-[9px] uppercase tracking-widest font-bold text-slate-500">PID</span>
+                                    <span class="text-xs font-mono text-indigo-400" x-text="item.data.pid"></span>
+                                </div>
+                                <div class="flex flex-col hidden md:flex">
+                                    <span class="text-[9px] uppercase tracking-widest font-bold text-slate-500">Timestamp</span>
+                                    <span class="text-[11px] text-slate-400" x-text="item.data.timestamp || new Date().toLocaleTimeString()"></span>
+                                </div>
+                                <div class="flex flex-col">
+                                    <span class="text-[9px] uppercase tracking-widest font-bold text-slate-500">Table</span>
+                                    <span class="text-xs font-bold text-emerald-400 truncate" x-text="item.data.table"></span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <template x-if="item.data.query.toUpperCase().includes('SELECT')">
+                                        <span class="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">SELECT</span>
+                                    </template>
+                                    <template x-if="item.data.query.toUpperCase().includes('INSERT')">
+                                        <span class="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">INSERT</span>
+                                    </template>
+                                    <template x-if="item.data.query.toUpperCase().includes('UPDATE')">
+                                        <span class="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">UPDATE</span>
+                                    </template>
+                                    <template x-if="item.data.query.toUpperCase().includes('DELETE')">
+                                        <span class="px-1.5 py-0.5 rounded text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">DELETE</span>
+                                    </template>
+                                </div>
                             </div>
-                            <button @click="copyToClipboard(q.query)" class="opacity-0 group-hover:opacity-100 transition-opacity bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-3 py-1 rounded">
-                                COPY SQL
-                            </button>
+                            <div class="flex items-center space-x-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" :class="item.expanded ? 'rotate-180' : ''" class="h-4 w-4 text-slate-500 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
                         </div>
-                        <div class="p-4">
-                            <pre class="code-font text-sm text-slate-300 overflow-x-auto whitespace-pre-wrap" x-text="q.query"></pre>
+                        <!-- Expanded State (Content) -->
+                        <div x-show="item.expanded" x-collapse>
+                            <div class="p-4 bg-slate-950/40 border-t border-slate-800/50">
+                                <div class="mb-3 flex justify-between items-center">
+                                    <span class="text-[10px] uppercase tracking-widest font-bold text-slate-500">Reconstructed SQL</span>
+                                    <button @click.stop="copyToClipboard(item.data.query)" class="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-3 py-1.5 rounded transition-all active:scale-95 shadow-lg shadow-indigo-500/20 uppercase tracking-wider">
+                                        Copy SQL
+                                    </button>
+                                </div>
+                                <div class="relative group/code">
+                                    <pre class="code-font text-sm text-slate-300 overflow-x-auto whitespace-pre-wrap leading-relaxed p-3 bg-slate-900/50 rounded-lg border border-slate-800" x-text="item.data.query"></pre>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -121,7 +160,7 @@
                 filter: '',
                 connected: false,
                 ws: null,
-                tags: ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'JOIN'],
+                tags: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
 
                 init() {
                     this.connect();
@@ -138,7 +177,11 @@
 
                     this.ws.onmessage = (event) => {
                         const data = JSON.parse(event.data);
-                        this.queries.unshift(data);
+                        // Store with expanded state
+                        this.queries.unshift({
+                            data: data,
+                            expanded: false
+                        });
                         if (this.queries.length > 100) this.queries.pop();
                     };
 
@@ -152,12 +195,16 @@
                 get filteredQueries() {
                     if (!this.filter) return this.queries;
                     const search = this.filter.toLowerCase();
-                    return this.queries.filter(q => q.query.toLowerCase().includes(search));
+                    return this.queries.filter(item => 
+                        item.data.query.toLowerCase().includes(search) || 
+                        item.data.table.toLowerCase().includes(search) ||
+                        item.data.pid.toLowerCase().includes(search)
+                    );
                 },
 
                 copyToClipboard(text) {
                     navigator.clipboard.writeText(text).then(() => {
-                        alert('SQL copied to clipboard!');
+                        // Toast or simple notification could be added here
                     });
                 }
             }
