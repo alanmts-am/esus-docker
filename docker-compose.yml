@@ -1,6 +1,6 @@
 services:
   pec:
-    container_name: esus_${ESUS_CONTAINER}
+    container_name: esus
     image: esus:${ESUS_IMAGE}
     pull_policy: build
     platform: linux/amd64
@@ -32,12 +32,12 @@ services:
     depends_on:
       - db
   watcher:
-      build: sql-watcher/.
-      image: sql-watcher:${ESUS_IMAGE}
+      build: watcher/.
+      image: esus-watcher:${ESUS_IMAGE}
       pull_policy: build
-      container_name: sql_watcher_${ESUS_CONTAINER}
+      container_name: esus_watcher
       environment:
-        - TARGET_CONTAINER=esus_db_${ESUS_CONTAINER}
+        - TARGET_CONTAINER=esus_db
         - WATCH_ID=${ESUS_PID}
       ports:
         - "8084:8081"
@@ -46,7 +46,7 @@ services:
       depends_on:
       - db
   db:
-    container_name: esus_db_${ESUS_CONTAINER}
+    container_name: esus_db
     image: postgres:18.3-alpine
     command: [
       "postgres",
