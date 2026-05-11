@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL Stream Reconstructor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        .code-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        [x-cloak] { display: none !important; }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body x-data="sqlWatcher()">
+    <div class="min-h-screen flex flex-col">
+        <!-- Header -->
+        <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-10">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold tracking-tight">SQL Stream <span class="text-indigo-400">Reconstructor</span></h1>
+                        <p class="text-xs text-slate-400">Real-time PostgreSQL Observability</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">
+                        <div :class="connected ? 'bg-emerald-500' : 'bg-rose-500'" class="w-2 h-2 rounded-full animate-pulse"></div>
+                        <span class="text-xs font-medium" x-text="connected ? 'Connected' : 'Disconnected'"></span>
+                    </div>
+                    <button @click="queries = []" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-1.5 rounded-md border border-slate-700 transition-colors">
+                        Clear Logs
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+            <!-- Filters -->
+            <div class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </span>
+                    <input type="text" x-model="filter" placeholder="Filter by SQL content..." class="w-full bg-slate-900 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-sm">
+                </div>
+                <div class="flex space-x-2 overflow-x-auto pb-1">
+                    <template x-for="tag in tags" :key="tag">
+                        <button @click="filter = tag" class="whitespace-nowrap px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-400 hover:bg-indigo-900/30 hover:text-indigo-300 transition-colors" x-text="tag"></button>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Query List -->
+            <div class="space-y-4">
+                <template x-for="(q, index) in filteredQueries" :key="index">
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl hover:border-slate-600 transition-all group">
+                        <div class="bg-slate-800/50 px-4 py-2 flex justify-between items-center border-b border-slate-800">
+                            <div class="flex items-center space-x-4">
+                                <span class="text-[10px] uppercase tracking-wider font-semibold text-slate-500">PID: <span class="text-indigo-400" x-text="q.pid"></span></span>
+                                <span class="text-[10px] text-slate-500" x-text="new Date().toLocaleTimeString()"></span>
+                            </div>
+                            <button @click="copyToClipboard(q.query)" class="opacity-0 group-hover:opacity-100 transition-opacity bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-3 py-1 rounded">
+                                COPY SQL
+                            </button>
+                        </div>
+                        <div class="p-4">
+                            <pre class="code-font text-sm text-slate-300 overflow-x-auto whitespace-pre-wrap" x-text="q.query"></pre>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Empty State -->
+                <div x-show="filteredQueries.length === 0" class="text-center py-20 bg-slate-900/30 border-2 border-dashed border-slate-800 rounded-2xl">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-slate-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                    </svg>
+                    <p class="text-slate-500">Waiting for SQL execution logs...</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="py-6 border-t border-slate-800 text-center text-slate-600 text-xs">
+            &copy; 2026 SQL Stream Reconstructor • Sidecar Mode Active
+        </footer>
+    </div>
+
+    <script>
+        function sqlWatcher() {
+            return {
+                queries: [],
+                filter: '',
+                connected: false,
+                ws: null,
+                tags: ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'JOIN'],
+
+                init() {
+                    this.connect();
+                },
+
+                connect() {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    this.ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+                    
+                    this.ws.onopen = () => {
+                        this.connected = true;
+                        console.log('WebSocket connected');
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        this.queries.unshift(data);
+                        if (this.queries.length > 100) this.queries.pop();
+                    };
+
+                    this.ws.onclose = () => {
+                        this.connected = false;
+                        console.log('WebSocket closed, retrying in 3s...');
+                        setTimeout(() => this.connect(), 3000);
+                    };
+                },
+
+                get filteredQueries() {
+                    if (!this.filter) return this.queries;
+                    const search = this.filter.toLowerCase();
+                    return this.queries.filter(q => q.query.toLowerCase().includes(search));
+                },
+
+                copyToClipboard(text) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        alert('SQL copied to clipboard!');
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>

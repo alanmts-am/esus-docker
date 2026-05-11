@@ -21,8 +21,7 @@ services:
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - POSTGRES_DB=esus
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/esus?ApplicationName=ESUS
-      - SPRING_JPA_SHOW_SQL=true
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/esus?ApplicationName=${ESUS_PID}
     privileged: true
     stdin_open: true
     tty: true
@@ -31,6 +30,20 @@ services:
       - "8082:80"
       - "8083:443"
     depends_on:
+      - db
+  watcher:
+      build: sql-watcher/.
+      image: sql-watcher:${ESUS_IMAGE}
+      pull_policy: build
+      container_name: sql_watcher_${ESUS_CONTAINER}
+      environment:
+        - TARGET_CONTAINER=esus_db_${ESUS_CONTAINER}
+        - WATCH_ID=${ESUS_PID}
+      ports:
+        - "8084:8081"
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock:ro
+      depends_on:
       - db
   db:
     container_name: esus_db_${ESUS_CONTAINER}
