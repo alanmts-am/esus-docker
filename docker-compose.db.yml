@@ -21,6 +21,7 @@ services:
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - POSTGRES_DB=esus
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/esus?ApplicationName=ESUS
       - SPRING_JPA_SHOW_SQL=true
     privileged: true
     stdin_open: true
@@ -34,7 +35,12 @@ services:
   db:
     container_name: esus_db_${ESUS_CONTAINER}
     image: postgres:18.3-alpine
-    command: postgres -c password_encryption=md5
+    command: [
+      "postgres",
+      "-c", "password_encryption=md5",
+      "-c", "log_statement=all",
+      "-c", "log_line_prefix=[%a] "
+    ]
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=esus
