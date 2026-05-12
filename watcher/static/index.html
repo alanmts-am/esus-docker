@@ -125,7 +125,7 @@
                             <div class="p-4 bg-slate-950/40 border-t border-slate-800/50">
                                 <div class="mb-3 flex justify-between items-center">
                                     <span class="text-[10px] uppercase tracking-widest font-bold text-slate-500">Reconstructed SQL</span>
-                                    <button @click.stop="copyToClipboard(item.data.query)" class="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-3 py-1.5 rounded transition-all active:scale-95 shadow-lg shadow-indigo-500/20 uppercase tracking-wider">
+                                    <button @click.stop="copyToClipboard(item.data.query, $event)" class="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-3 py-1.5 rounded transition-all active:scale-95 shadow-lg shadow-indigo-500/20 uppercase tracking-wider">
                                         Copy SQL
                                     </button>
                                 </div>
@@ -202,10 +202,42 @@
                     );
                 },
 
-                copyToClipboard(text) {
+                copyToClipboard(text, event) {
+                    if (!navigator.clipboard) {
+                        // Fallback for non-secure contexts
+                        const textArea = document.createElement("textarea");
+                        textArea.value = text;
+                        document.body.appendChild(textArea);
+                        textArea.select();
+                        try {
+                            document.execCommand('copy');
+                            this.showCopyFeedback(event);
+                        } catch (err) {
+                            console.error('Fallback copy failed', err);
+                        }
+                        document.body.removeChild(textArea);
+                        return;
+                    }
+
                     navigator.clipboard.writeText(text).then(() => {
-                        // Toast or simple notification could be added here
+                        this.showCopyFeedback(event);
+                    }).catch(err => {
+                        console.error('Copy failed', err);
                     });
+                },
+
+                showCopyFeedback(event) {
+                    const btn = event.currentTarget;
+                    const originalText = btn.innerText;
+                    btn.innerText = 'Copied!';
+                    btn.classList.remove('bg-indigo-600');
+                    btn.classList.add('bg-emerald-500');
+                    
+                    setTimeout(() => {
+                        btn.innerText = originalText;
+                        btn.classList.remove('bg-emerald-500');
+                        btn.classList.add('bg-indigo-600');
+                    }, 2000);
                 }
             }
         }
