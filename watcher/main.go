@@ -32,8 +32,8 @@ type pendingQuery struct {
 var (
 	// Regex patterns: Case-insensitive and flexible with spaces
 	// Handles formats like TIMESTAMP [PID] [APPNAME]
-	reExecute = regexp.MustCompile(`(?i)^(?:(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: \w+)?)\s+)?\[([^\]]+)\](?: \[([^\]]+)\])? LOG:\s+execute .*: (.*)`)
-	reParams  = regexp.MustCompile(`(?i)^(?:(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: \w+)?)\s+)?\[([^\]]+)\](?: \[([^\]]+)\])? DETAIL:\s+parameters:\s+(.*)`)
+	reExecute = regexp.MustCompile(`(?i)^(?:(.*)\s+)?\[(\d+)\](?:\s+\[([^\]]*)\])?\s+LOG:\s+execute .*: (.*)`)
+	reParams  = regexp.MustCompile(`(?i)^(?:(.*)\s+)?\[(\d+)\](?:\s+\[([^\]]*)\])?\s+DETAIL:\s+parameters?[:]?\s*(.*)`)
 	
 	queryState = make(map[string]pendingQuery)
 	stateMu    sync.Mutex
@@ -252,8 +252,8 @@ func extractTable(query string) string {
 func reconstructQuery(skeleton string, paramsRaw string) string {
 	// 1. Build a map of placeholder -> value
 	values := make(map[string]string)
-	// Match $1 = , $10 = , etc. with flexible spacing
-	reParamStart := regexp.MustCompile(`\$\d+\s*=\s*`)
+	// Match $1 = , $10 = , $1 : , etc. with flexible spacing
+	reParamStart := regexp.MustCompile(`\$\d+\s*(?:=|\s|:)\s*`)
 	indices := reParamStart.FindAllStringIndex(paramsRaw, -1)
 	
 	if len(indices) == 0 {
@@ -270,13 +270,17 @@ func reconstructQuery(skeleton string, paramsRaw string) string {
 		
 		// Extract placeholder (e.g., "$1")
 		placeholderMatch := paramsRaw[start:valStart]
-		placeholder := strings.TrimSpace(strings.Split(placeholderMatch, "=")[0])
+		// Handle both "$1 =" and "$1 " formats
+		placeholder := strings.TrimSpace(placeholderMatch)
+		placeholder = strings.TrimSuffix(placeholder, "=")
+		placeholder = strings.TrimSuffix(placeholder, ":")
+		placeholder = strings.TrimSpace(placeholder)
 		
 		// Extract and clean value
 		val := paramsRaw[valStart:end]
 		// Remove trailing comma and space if not the last parameter
-		val = strings.TrimSuffix(val, ", ")
-		val = strings.TrimSuffix(val, ",") // Handle case without space
+		val = strings.TrimSuffix(strings.TrimSpace(val), ",")
+		val = strings.TrimSuffix(strings.TrimSpace(val), ", ")
 		val = strings.TrimSpace(val)
 		
 		values[placeholder] = val
