@@ -1,6 +1,6 @@
 services:
   pec:
-    container_name: esus_${ESUS_CONTAINER}
+    container_name: esus
     image: esus:${ESUS_IMAGE}
     pull_policy: build
     platform: linux/amd64
