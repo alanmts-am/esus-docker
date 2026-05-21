@@ -39,6 +39,11 @@ services:
       environment:
         - TARGET_CONTAINER=esus_db
         - WATCH_ID=${ESUS_PID}
+        - PG_HOST=db
+        - PG_PORT=5432
+        - PG_USER=postgres
+        - PG_PASSWORD=esus
+        - PG_DBNAME=watcher
       ports:
         - "8084:8081"
       volumes:

@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,7 +14,9 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/gorilla/websocket"
 )
 
@@ -30,11 +34,9 @@ type pendingQuery struct {
 }
 
 var (
-	// Regex patterns: Case-insensitive and flexible with spaces
-	// Handles formats like TIMESTAMP [PID] [APPNAME]
 	reExecute = regexp.MustCompile(`(?i)^(?:(.*)\s+)?\[(\d+)\](?:\s+\[([^\]]*)\])?\s+LOG:\s+execute .*: (.*)`)
 	reParams  = regexp.MustCompile(`(?i)^(?:(.*)\s+)?\[(\d+)\](?:\s+\[([^\]]*)\])?\s+DETAIL:\s+parameters?[:]?\s*(.*)`)
-	
+
 	queryState = make(map[string]pendingQuery)
 	stateMu    sync.Mutex
 
@@ -46,26 +48,117 @@ var (
 	clientsMu sync.Mutex
 	broadcast = make(chan QueryMessage)
 
-	// Filter settings
 	watchID = os.Getenv("WATCH_ID")
 
-	// Multi-line state
-	currentPID   string
-	currentType  string // "EXECUTE" or "PARAMS"
+	currentPID    string
+	currentType   string
 	pendingParams string
+
+	db *sql.DB
 )
 
-func main() {
-	containerName := os.Getenv("TARGET_CONTAINER")
-	if containerName == "" {
-		containerName = "esus_db_5_4_36_postgre18"
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func initDB() {
+	host := getEnv("PG_HOST", "db")
+	port := getEnv("PG_PORT", "5432")
+	user := getEnv("PG_USER", "postgres")
+	password := getEnv("PG_PASSWORD", "esus")
+	dbName := getEnv("PG_DBNAME", "watcher")
+
+	// Connect to the default postgres database to create the watcher db if needed
+	adminDSN := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=postgres sslmode=disable", host, port, user, password)
+
+	var adminDB *sql.DB
+	var err error
+	for i := range 10 {
+		adminDB, err = sql.Open("postgres", adminDSN)
+		if err == nil {
+			err = adminDB.Ping()
+		}
+		if err == nil {
+			break
+		}
+		log.Printf("Waiting for PostgreSQL (attempt %d/10): %v", i+1, err)
+		time.Sleep(3 * time.Second)
+	}
+	if err != nil {
+		log.Fatalf("Could not connect to PostgreSQL: %v", err)
 	}
 
+	_, err = adminDB.Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, dbName))
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		log.Fatalf("Failed to create database %q: %v", dbName, err)
+	}
+	adminDB.Close()
+
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbName)
+	db, err = sql.Open("postgres", dsn)
+	if err != nil {
+		log.Fatalf("Failed to open watcher database: %v", err)
+	}
+
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS queries (
+		id         SERIAL PRIMARY KEY,
+		pid        TEXT,
+		query      TEXT,
+		timestamp  TEXT,
+		table_name TEXT,
+		created_at TIMESTAMPTZ DEFAULT NOW()
+	)`)
+	if err != nil {
+		log.Fatalf("Failed to create queries table: %v", err)
+	}
+
+	log.Printf("Database %q ready", dbName)
+}
+
+func saveQuery(msg QueryMessage) {
+	_, err := db.Exec(
+		`INSERT INTO queries (pid, query, timestamp, table_name) VALUES ($1, $2, $3, $4)`,
+		msg.PID, msg.Query, msg.Timestamp, msg.Table,
+	)
+	if err != nil {
+		log.Printf("Failed to save query: %v", err)
+	}
+}
+
+func handleGetQueries(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(`SELECT pid, query, timestamp, table_name FROM queries ORDER BY id DESC LIMIT 100`)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	queries := []QueryMessage{}
+	for rows.Next() {
+		var q QueryMessage
+		if err := rows.Scan(&q.PID, &q.Query, &q.Timestamp, &q.Table); err != nil {
+			continue
+		}
+		queries = append(queries, q)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(queries)
+}
+
+func main() {
+	initDB()
+
+	containerName := getEnv("TARGET_CONTAINER", "esus_db_5_4_36_postgre18")
 	fmt.Printf("Starting SQL Watcher monitoring container: %s via /var/run/docker.sock\n", containerName)
 
 	go streamDockerLogs(containerName)
 	go handleMessages()
 
+	http.HandleFunc("/api/queries", handleGetQueries)
 	http.HandleFunc("/ws", handleConnections)
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 
@@ -84,7 +177,7 @@ func streamDockerLogs(containerName string) {
 	}
 
 	url := fmt.Sprintf("http://localhost/v1.41/containers/%s/logs?stdout=1&stderr=1&follow=1&tail=10", containerName)
-	
+
 	resp, err := client.Get(url)
 	if err != nil {
 		log.Printf("Error connecting to Docker Socket: %v. Retrying in 5s...", err)
@@ -103,7 +196,9 @@ func streamDockerLogs(containerName string) {
 		header := make([]byte, 8)
 		_, err := io.ReadFull(reader, header)
 		if err != nil {
-			if err == io.EOF { break }
+			if err == io.EOF {
+				break
+			}
 			log.Printf("Header read error: %v", err)
 			break
 		}
@@ -129,7 +224,6 @@ func processLine(logText string) {
 	stateMu.Lock()
 	defer stateMu.Unlock()
 
-	// Check if this is a continuation line (starts with tab or multiple spaces)
 	if (strings.HasPrefix(logText, "\t") || strings.HasPrefix(logText, " ")) && currentPID != "" {
 		if currentType == "EXECUTE" {
 			pending := queryState[currentPID]
@@ -141,7 +235,6 @@ func processLine(logText string) {
 		return
 	}
 
-	// If we were accumulating parameters and a new prefixed line starts, broadcast the previous one
 	if currentType == "PARAMS" && currentPID != "" {
 		broadcastPendingParams()
 	}
@@ -150,7 +243,7 @@ func processLine(logText string) {
 		timestamp := strings.TrimSpace(matches[1])
 		pid := matches[2]
 		appName := matches[3]
-		sql := matches[4]
+		sqlStr := matches[4]
 
 		displayID := pid
 		if appName != "" {
@@ -158,14 +251,14 @@ func processLine(logText string) {
 		}
 
 		if watchID != "" && pid != watchID && appName != watchID {
-			currentPID = "" // Stop tracking this one
+			currentPID = ""
 			return
 		}
 
 		currentPID = pid
 		currentType = "EXECUTE"
 		queryState[pid] = pendingQuery{
-			SQL:       sql,
+			SQL:       sqlStr,
 			Timestamp: timestamp,
 			DisplayID: displayID,
 		}
@@ -175,35 +268,28 @@ func processLine(logText string) {
 	if matches := reParams.FindStringSubmatch(logText); matches != nil {
 		pid := matches[2]
 		paramsRaw := matches[4]
-		
+
 		currentPID = pid
 		currentType = "PARAMS"
 		pendingParams = paramsRaw
 		return
 	}
 
-	// If it's some other log line, clear the multi-line state
 	currentPID = ""
 	currentType = ""
 }
 
 func broadcastPendingParams() {
-	// Assumes stateMu is already locked
 	pending, ok := queryState[currentPID]
 	if ok {
 		delete(queryState, currentPID)
 		finalQuery := reconstructQuery(pending.SQL, pendingParams)
-		
-		// Reset state before broadcasting to avoid race conditions if broadcast is slow (though it's a chan)
 		msg := QueryMessage{
 			PID:       pending.DisplayID,
 			Query:     finalQuery,
 			Timestamp: pending.Timestamp,
 			Table:     extractTable(finalQuery),
 		}
-		
-		// Do not hold lock while sending to channel to avoid deadlocks if channel is full
-		// But here we need to keep it simple for now or use a goroutine
 		go func(m QueryMessage) {
 			broadcast <- m
 		}(msg)
@@ -214,7 +300,6 @@ func broadcastPendingParams() {
 }
 
 func extractTable(query string) string {
-	upperQuery := strings.ToUpper(query)
 	patterns := []string{
 		`FROM\s+([a-zA-Z0-9_."]+)`,
 		`INSERT INTO\s+([a-zA-Z0-9_."]+)`,
@@ -224,12 +309,12 @@ func extractTable(query string) string {
 	}
 	for _, p := range patterns {
 		re := regexp.MustCompile(`(?i)` + p)
-		matches := re.FindStringSubmatch(query)
-		if len(matches) > 1 {
+		if matches := re.FindStringSubmatch(query); len(matches) > 1 {
 			return matches[1]
 		}
 	}
-	
+
+	upperQuery := strings.ToUpper(query)
 	parts := strings.Fields(upperQuery)
 	if len(parts) > 1 {
 		if parts[0] == "SELECT" {
@@ -250,12 +335,10 @@ func extractTable(query string) string {
 }
 
 func reconstructQuery(skeleton string, paramsRaw string) string {
-	// 1. Build a map of placeholder -> value
 	values := make(map[string]string)
-	// Match $1 = , $10 = , $1 : , etc. with flexible spacing
 	reParamStart := regexp.MustCompile(`\$\d+\s*(?:=|\s|:)\s*`)
 	indices := reParamStart.FindAllStringIndex(paramsRaw, -1)
-	
+
 	if len(indices) == 0 {
 		return skeleton
 	}
@@ -267,28 +350,21 @@ func reconstructQuery(skeleton string, paramsRaw string) string {
 		if i+1 < len(indices) {
 			end = indices[i+1][0]
 		}
-		
-		// Extract placeholder (e.g., "$1")
+
 		placeholderMatch := paramsRaw[start:valStart]
-		// Handle both "$1 =" and "$1 " formats
 		placeholder := strings.TrimSpace(placeholderMatch)
 		placeholder = strings.TrimSuffix(placeholder, "=")
 		placeholder = strings.TrimSuffix(placeholder, ":")
 		placeholder = strings.TrimSpace(placeholder)
-		
-		// Extract and clean value
+
 		val := paramsRaw[valStart:end]
-		// Remove trailing comma and space if not the last parameter
 		val = strings.TrimSuffix(strings.TrimSpace(val), ",")
 		val = strings.TrimSuffix(strings.TrimSpace(val), ", ")
 		val = strings.TrimSpace(val)
-		
+
 		values[placeholder] = val
 	}
 
-	// 2. Replace placeholders in the skeleton using regex to avoid partial matches
-	// Using ReplaceAllStringFunc ensures that $10 is treated as a single token 
-	// and not as $1 followed by 0.
 	rePlaceholder := regexp.MustCompile(`\$\d+`)
 	return rePlaceholder.ReplaceAllStringFunc(skeleton, func(match string) string {
 		if val, ok := values[match]; ok {
@@ -300,7 +376,9 @@ func reconstructQuery(skeleton string, paramsRaw string) string {
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	defer ws.Close()
 	clientsMu.Lock()
 	clients[ws] = true
@@ -318,6 +396,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 func handleMessages() {
 	for {
 		msg := <-broadcast
+		go saveQuery(msg)
 		clientsMu.Lock()
 		for client := range clients {
 			if err := client.WriteJSON(msg); err != nil {

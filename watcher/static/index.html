@@ -162,8 +162,19 @@
                 ws: null,
                 tags: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
 
-                init() {
+                async init() {
+                    await this.loadHistory();
                     this.connect();
+                },
+
+                async loadHistory() {
+                    try {
+                        const res = await fetch('/api/queries');
+                        const data = await res.json();
+                        this.queries = data.map(q => ({ data: q, expanded: false }));
+                    } catch (e) {
+                        console.error('Failed to load history', e);
+                    }
                 },
 
                 connect() {
