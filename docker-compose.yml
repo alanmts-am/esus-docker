@@ -31,24 +31,36 @@ services:
       - "8083:443"
     depends_on:
       - db
+  redis:
+    container_name: esus_redis
+    image: redis:7-alpine
+
   watcher:
-      build: watcher/.
-      image: esus-watcher:${ESUS_IMAGE}
-      pull_policy: build
-      container_name: esus_watcher
-      environment:
-        - TARGET_CONTAINER=esus_db
-        - WATCH_ID=${ESUS_PID}
-        - PG_HOST=db
-        - PG_PORT=5432
-        - PG_USER=postgres
-        - PG_PASSWORD=esus
-        - PG_DBNAME=watcher
-      ports:
-        - "8084:8081"
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock:ro
-      depends_on:
+    build: workers/watcher
+    pull_policy: build
+    container_name: esus_watcher
+    environment:
+      - TARGET_CONTAINER=esus_db
+      - WATCH_ID=${ESUS_PID}
+      - REDIS_ADDR=redis:6379
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - redis
+
+  consumer:
+    build: workers/consumer
+    pull_policy: build
+    container_name: esus_consumer
+    environment:
+      - REDIS_ADDR=redis:6379
+      - PG_HOST=db
+      - PG_PORT=5432
+      - PG_USER=postgres
+      - PG_PASSWORD=esus
+      - PG_DBNAME=watcher
+    depends_on:
+      - redis
       - db
   db:
     container_name: esus_db
