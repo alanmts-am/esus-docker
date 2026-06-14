@@ -18,11 +18,11 @@ sudo docker compose -f docker-compose.db.yml up -d
 
 ### Setup completo (app + banco + workers)
 
-Inclui, além do e-SUS e do banco, os workers de monitoramento:
+Inclui, além do e-SUS e do banco, uma pipeline de auditoria de SQL:
 
-- **redis** — fila de mensagens entre os workers
-- **watcher** — observa eventos no container do banco
-- **consumer** — processa os eventos e persiste em banco próprio
+- **watcher** — lê os logs do container do Postgres via Docker socket, intercepta as queries SQL executadas pelo e-SUS (reconstruindo os valores dos parâmetros no lugar dos `$1`, `$2`...) e publica cada query no Redis
+- **redis** — fila que desacopla o watcher do consumer
+- **consumer** — consome as queries do Redis e as persiste num banco Postgres separado (`watcher`), com a tabela `queries` contendo: PID da conexão, texto da query, timestamp e tabela afetada
 
 ```bash
 sudo docker compose up -d
