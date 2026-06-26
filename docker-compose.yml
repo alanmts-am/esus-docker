@@ -26,9 +26,9 @@ services:
     stdin_open: true
     tty: true
     ports:
-      - "8081:8080"
-      - "8082:80"
-      - "8083:443"
+      - "2740:8080"
+      - "2741:80"
+      - "2742:443"
     depends_on:
       - db
   redis:
@@ -78,6 +78,6 @@ services:
       - POSTGRES_INITDB_ARGS=--auth-host=md5 --auth-local=md5
       - PGDATA=/var/lib/postgresql/data
     ports: 
-      - "5543:5432" 
+      - "2743:5432" 
     volumes:
       - ${ESUS_VOLUME_PATH}/${ESUS_IMAGE}/db:/var/lib/postgresql
